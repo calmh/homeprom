@@ -33,7 +33,7 @@ const sampleData = "/ELL5\x5c253833635_A\r\n\r\n" +
 	"1-0:31.7.0(004.2*A)\r\n" +
 	"1-0:51.7.0(001.6*A)\r\n" +
 	"1-0:71.7.0(001.7*A)\r\n" +
-	"!\x79\x45"
+	"!7945\r\n"
 
 func TestFramerParser(t *testing.T) {
 	br := strings.NewReader(sampleData)

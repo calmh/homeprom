@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"strings"
-	"time"
 	"unicode"
 
 	"golang.org/x/text/runes"
@@ -15,6 +17,7 @@ import (
 )
 
 func main() {
+	pg := flag.String("pushgateway", "https://nmea.calmh.dev", "Pushgateway URL")
 	flag.Parse()
 	if flag.NArg() != 1 {
 		fmt.Printf("Usage: %s <serial port>\n", os.Args[0])
@@ -27,23 +30,37 @@ func main() {
 	}
 
 	framer := NewFramer(fd)
+	buf := new(bytes.Buffer)
 	for {
 		frame, err := framer.Read()
 		if err != nil {
 			log.Fatal(err)
 		}
-		fmt.Printf("%s %s %s\n", frame.FlagID, frame.BaudRate, frame.Ident)
+
+		instance := sanitizeString(frame.FlagID + "_" + frame.Ident)
 		for _, d := range frame.Data {
 			val, err := Parse(d)
 			if err != nil {
 				log.Fatal(err)
 			}
-			if val.Ident == DateTimeIdent {
-				fmt.Println(counterName(val), time.Unix(int64(val.Value), 0))
-				continue
+			name := counterName(val)
+			switch val.Ident.Cumulative {
+			case 7:
+				fmt.Fprintf(buf, "# TYPE %s gauge\n", name)
+			case 8:
+				fmt.Fprintf(buf, "# TYPE %s counter\n", name)
 			}
-			fmt.Println(counterName(val), val.Value)
+			fmt.Fprintf(buf, "%s %f\n", name, val.Value)
 		}
+		resp, err := http.Post(*pg+"/metrics/job/hanprom/instance/"+instance, "text/plain", buf)
+		if err != nil {
+			log.Println("Push:", err)
+		} else if resp.StatusCode != http.StatusOK {
+			fmt.Println("Push:", resp.Status)
+			io.Copy(os.Stdout, resp.Body)
+		}
+		resp.Body.Close()
+		buf.Reset()
 	}
 }
 
@@ -52,7 +69,7 @@ func counterName(v *Value) string {
 	if v.Unit != "" {
 		name += "_" + v.Unit
 	}
-	return name
+	return "han_" + name
 }
 
 func sanitizeString(s string) string {
