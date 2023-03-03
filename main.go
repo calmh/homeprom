@@ -43,6 +43,12 @@ func main() {
 			if err != nil {
 				log.Fatal(err)
 			}
+
+			if strings.HasPrefix(val.Unit, "kW") {
+				val.Value = val.Value * 1000
+				val.Unit = val.Unit[1:]
+			}
+
 			name := counterName(val)
 			switch val.Ident.Cumulative {
 			case 7:
