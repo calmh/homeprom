@@ -11,6 +11,7 @@ import (
 	"strings"
 	"unicode"
 
+	"go.bug.st/serial"
 	"golang.org/x/text/runes"
 	"golang.org/x/text/transform"
 	"golang.org/x/text/unicode/norm"
@@ -24,7 +25,12 @@ func main() {
 		os.Exit(2)
 	}
 
-	fd, err := os.Open(flag.Arg(0))
+	fd, err := serial.Open(flag.Arg(0), &serial.Mode{
+		BaudRate: 115200,
+		Parity:   serial.NoParity,
+		DataBits: 8,
+		StopBits: serial.OneStopBit,
+	})
 	if err != nil {
 		log.Fatal(err)
 	}
