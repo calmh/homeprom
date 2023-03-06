@@ -55,7 +55,7 @@ var IdentDescr = map[Ident]string{
 	{1, 0, 71, 7, 0, 0}: "L3 Fasström",
 }
 
-var seLoc, _ = time.LoadLocation("Europe/Stockholm")
+var seLoc = time.FixedZone("CET", 3600)
 
 func Parse(line string) (*Value, error) {
 	ident, val, ok := strings.Cut(line, "(")
