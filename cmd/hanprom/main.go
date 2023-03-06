@@ -1,49 +1,49 @@
 package main
 
 import (
-	"bytes"
 	"flag"
-	"fmt"
-	"io"
 	"log"
+	"net"
 	"net/http"
-	"os"
 	"strings"
+	"time"
 	"unicode"
 
-	"go.bug.st/serial"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/text/runes"
 	"golang.org/x/text/transform"
 	"golang.org/x/text/unicode/norm"
 )
 
-func main() {
-	pg := flag.String("pushgateway", "https://nmea.calmh.dev", "Pushgateway URL")
-	flag.Parse()
-	if flag.NArg() != 1 {
-		fmt.Printf("Usage: %s <serial port>\n", os.Args[0])
-		os.Exit(2)
-	}
+var gauges = make(map[string]prometheus.Gauge)
 
-	fd, err := serial.Open(flag.Arg(0), &serial.Mode{
-		BaudRate: 115200,
-		Parity:   serial.NoParity,
-		DataBits: 8,
-		StopBits: serial.OneStopBit,
-	})
+func main() {
+	addr := flag.String("addr", "localhost:2113", "HAN address")
+	listen := flag.String("listen", "0.0.0.0:2115", "HTTP listener address")
+	flag.Parse()
+
+	go func() {
+		if err := http.ListenAndServe(*listen, promhttp.Handler()); err != nil {
+			log.Fatal(err)
+		}
+	}()
+
+	conn, err := net.Dial("tcp", *addr)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	framer := NewFramer(fd)
-	buf := new(bytes.Buffer)
+	framer := NewFramer(conn)
 	for {
+		if err := conn.SetReadDeadline(time.Now().Add(time.Minute)); err != nil {
+			log.Fatal(err)
+		}
 		frame, err := framer.Read()
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		instance := sanitizeString(frame.FlagID + "_" + frame.Ident)
 		for _, d := range frame.Data {
 			val, err := Parse(d)
 			if err != nil {
@@ -56,23 +56,14 @@ func main() {
 			}
 
 			name := counterName(val)
-			switch val.Ident.Cumulative {
-			case 7:
-				fmt.Fprintf(buf, "# TYPE %s gauge\n", name)
-			case 8:
-				fmt.Fprintf(buf, "# TYPE %s counter\n", name)
+			gauge, ok := gauges[name]
+			if !ok {
+				gauge = prometheus.NewGauge(prometheus.GaugeOpts{Name: name})
+				prometheus.MustRegister(gauge)
+				gauges[name] = gauge
 			}
-			fmt.Fprintf(buf, "%s %f\n", name, val.Value)
+			gauge.Set(val.Value)
 		}
-		resp, err := http.Post(*pg+"/metrics/job/hanprom/instance/"+instance, "text/plain", buf)
-		if err != nil {
-			log.Println("Push:", err)
-		} else if resp.StatusCode != http.StatusOK {
-			fmt.Println("Push:", resp.Status)
-			io.Copy(os.Stdout, resp.Body)
-		}
-		resp.Body.Close()
-		buf.Reset()
 	}
 }
 
