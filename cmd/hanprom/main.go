@@ -29,7 +29,7 @@ func main() {
 		}
 	}()
 
-	conn, err := net.Dial("tcp", *addr)
+	conn, err := net.DialTimeout("tcp", *addr, time.Minute)
 	if err != nil {
 		log.Fatal(err)
 	}
