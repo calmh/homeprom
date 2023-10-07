@@ -1,5 +1,5 @@
-calmh.dev/hassmqtt v0.0.0-20231007085221-f12692fb76fc h1:4DW2UlMBpWs0qanLx0pYsZNSXQRlDjtvvYtbQig/dtM=
-calmh.dev/hassmqtt v0.0.0-20231007085221-f12692fb76fc/go.mod h1:DMruEGEa7/ui+LHkYSfrrT2JDYu9uY0PV6twnqbHCew=
+calmh.dev/hassmqtt v0.0.0-20231007091328-d7aee239f929 h1:jgWK+HWtEJGf+yrQtOmXqD8Blso2DZJwjTGAJCK6cO8=
+calmh.dev/hassmqtt v0.0.0-20231007091328-d7aee239f929/go.mod h1:DMruEGEa7/ui+LHkYSfrrT2JDYu9uY0PV6twnqbHCew=
 cloud.google.com/go v0.26.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
 cloud.google.com/go v0.34.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
 cloud.google.com/go v0.38.0/go.mod h1:990N+gfupTy94rShfmMCWGDn0LpTmnzTp2qbd1dvSRU=

@@ -64,6 +64,9 @@ func publishMQTT(client mqtt.Client, cli *CLI, frame *Frame, val *Value) {
 				Unit:        val.Unit,
 				Name:        IdentDescr[val.Ident],
 			}
+			if val.Ident.Cumulative == 8 {
+				metric.StateClass = "total"
+			}
 			mqttMetrics[id] = metric
 		}
 		if err := metric.Publish(client, val.Value); err != nil {
