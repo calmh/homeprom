@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"log"
 	"net"
 	"net/http"
@@ -9,6 +8,8 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/alecthomas/kong"
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/text/runes"
@@ -18,20 +19,37 @@ import (
 
 var gauges = make(map[string]prometheus.Gauge)
 
+type CLI struct {
+	Addr   string `default:"localhost:2113" help:"HAN address"`
+	Listen string `default:"0.0.0.0:2115" help:"HTTP listener address"`
+
+	MQTTBroker   string `help:"MQTT broker address" env:"MQTT_BROKER"`
+	MQTTClientID string `help:"MQTT client ID" env:"MQTT_CLIENT_ID"`
+	MQTTUsername string `help:"MQTT username" default:"" env:"MQTT_USERNAME"`
+	MQTTPassword string `help:"MQTT password" default:"" env:"MQTT_PASSWORD"`
+}
+
 func main() {
-	addr := flag.String("addr", "localhost:2113", "HAN address")
-	listen := flag.String("listen", "0.0.0.0:2115", "HTTP listener address")
-	flag.Parse()
+	var cli CLI
+	kong.Parse(&cli)
 
 	go func() {
-		if err := http.ListenAndServe(*listen, promhttp.Handler()); err != nil {
+		if err := http.ListenAndServe(cli.Listen, promhttp.Handler()); err != nil {
 			log.Fatal(err)
 		}
 	}()
 
-	conn, err := net.DialTimeout("tcp", *addr, time.Minute)
+	conn, err := net.DialTimeout("tcp", cli.Addr, time.Minute)
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	var mqttClient mqtt.Client
+	if cli.MQTTBroker != "" {
+		mqttClient, err = getClient(&cli)
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	framer := NewFramer(conn)
@@ -63,6 +81,10 @@ func main() {
 				gauges[name] = gauge
 			}
 			gauge.Set(val.Value)
+
+			if mqttClient != nil {
+				publishMQTT(mqttClient, &cli, frame, val)
+			}
 		}
 	}
 }
