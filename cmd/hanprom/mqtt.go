@@ -1,10 +1,11 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"fmt"
-	"log"
 	"os"
+	"time"
 
 	"calmh.dev/hassmqtt"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -18,9 +19,18 @@ var unitToClass = map[string]string{
 	"VA": "apparent_power",
 }
 
-var mqttMetrics = make(map[string]*hassmqtt.Metric)
+type mqttClient struct {
+	opts        *mqtt.ClientOptions
+	mqttMetrics map[string]*hassmqtt.Metric
+	outbox      chan message
+}
 
-func getClient(cli *CLI) (mqtt.Client, error) {
+type message struct {
+	frame *Frame
+	val   *Value
+}
+
+func getClient(cli *CLI) (*mqttClient, error) {
 	if cli.MQTTClientID == "" {
 		hn, _ := os.Hostname()
 		home, _ := os.UserHomeDir()
@@ -36,25 +46,47 @@ func getClient(cli *CLI) (mqtt.Client, error) {
 		opts.SetUsername(cli.MQTTUsername)
 		opts.SetPassword(cli.MQTTPassword)
 	}
+	opts.SetAutoReconnect(true)
+	opts.SetConnectTimeout(5 * time.Second)
+	opts.SetWriteTimeout(5 * time.Second)
 
-	client := mqtt.NewClient(opts)
+	return &mqttClient{
+		opts:        opts,
+		mqttMetrics: make(map[string]*hassmqtt.Metric),
+		outbox:      make(chan message, 100),
+	}, nil
+}
+
+func (c *mqttClient) Serve(ctx context.Context) error {
+	client := mqtt.NewClient(c.opts)
 	token := client.Connect()
 	token.Wait()
 	if err := token.Error(); err != nil {
-		return nil, err
+		return err
 	}
-	return client, nil
+	defer client.Disconnect(250)
+
+	for msg := range c.outbox {
+		if err := c.publish(client, msg.frame, msg.val); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-func publishMQTT(client mqtt.Client, cli *CLI, frame *Frame, val *Value) {
+func (c *mqttClient) Publish(frame *Frame, val *Value) {
+	c.outbox <- message{frame, val}
+}
+
+func (c *mqttClient) publish(client mqtt.Client, frame *Frame, val *Value) error {
 	if cl, ok := unitToClass[val.Unit]; ok {
 		id := sanitizeString(IdentDescr[val.Ident])
-		metric, ok := mqttMetrics[id]
+		metric, ok := c.mqttMetrics[id]
 		if !ok {
 			metric = &hassmqtt.Metric{
 				Device: &hassmqtt.Device{
 					Namespace: "han",
-					ClientID:  cli.MQTTClientID,
+					ClientID:  c.opts.ClientID,
 					ID:        frame.Ident,
 					Name:      frame.Ident,
 				},
@@ -67,10 +99,9 @@ func publishMQTT(client mqtt.Client, cli *CLI, frame *Frame, val *Value) {
 			if val.Ident.Cumulative == 8 {
 				metric.StateClass = "total"
 			}
-			mqttMetrics[id] = metric
+			c.mqttMetrics[id] = metric
 		}
-		if err := metric.Publish(client, val.Value); err != nil {
-			log.Println("Publish:", err)
-		}
+		return metric.Publish(client, val.Value)
 	}
+	return nil
 }

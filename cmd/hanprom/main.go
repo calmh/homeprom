@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net"
 	"net/http"
@@ -9,9 +10,9 @@ import (
 	"unicode"
 
 	"github.com/alecthomas/kong"
-	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/thejerf/suture/v4"
 	"golang.org/x/text/runes"
 	"golang.org/x/text/transform"
 	"golang.org/x/text/unicode/norm"
@@ -33,6 +34,9 @@ func main() {
 	var cli CLI
 	kong.Parse(&cli)
 
+	main := suture.NewSimple("main")
+	go main.ServeBackground(context.Background())
+
 	go func() {
 		if err := http.ListenAndServe(cli.Listen, promhttp.Handler()); err != nil {
 			log.Fatal(err)
@@ -44,12 +48,13 @@ func main() {
 		log.Fatal(err)
 	}
 
-	var mqttClient mqtt.Client
+	var mqttClient *mqttClient
 	if cli.MQTTBroker != "" {
 		mqttClient, err = getClient(&cli)
 		if err != nil {
 			log.Fatal(err)
 		}
+		main.Add(mqttClient)
 	}
 
 	framer := NewFramer(conn)
@@ -83,7 +88,7 @@ func main() {
 			gauge.Set(val.Value)
 
 			if mqttClient != nil {
-				publishMQTT(mqttClient, &cli, frame, val)
+				mqttClient.Publish(frame, val)
 			}
 		}
 	}

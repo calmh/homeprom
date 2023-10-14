@@ -7,6 +7,7 @@ require (
 	github.com/alecthomas/kong v0.8.0
 	github.com/eclipse/paho.mqtt.golang v1.4.3
 	github.com/prometheus/client_golang v1.14.0
+	github.com/thejerf/suture/v4 v4.0.2
 	go.bug.st/serial v1.5.0
 	golang.org/x/text v0.8.0
 )
