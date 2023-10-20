@@ -2,10 +2,7 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"fmt"
 	"log/slog"
-	"os"
 	"time"
 
 	"calmh.dev/hassmqtt"
@@ -32,17 +29,9 @@ type message struct {
 }
 
 func getClient(cli *CLI) (*mqttClient, error) {
-	if cli.MQTTClientID == "" {
-		hn, _ := os.Hostname()
-		home, _ := os.UserHomeDir()
-		hf := sha256.New()
-		fmt.Fprintf(hf, "%s\n%s\n", hn, home)
-		cli.MQTTClientID = fmt.Sprintf("h%x", hf.Sum(nil))[:12]
-	}
-
 	opts := mqtt.NewClientOptions()
 	opts.AddBroker(cli.MQTTBroker)
-	opts.SetClientID(cli.MQTTClientID)
+	opts.SetClientID(hassmqtt.ClientID("hanprom"))
 	if cli.MQTTUsername != "" && cli.MQTTPassword != "" {
 		opts.SetUsername(cli.MQTTUsername)
 		opts.SetPassword(cli.MQTTPassword)

@@ -3,7 +3,7 @@ module calmh.dev/hanprom
 go 1.21.2
 
 require (
-	calmh.dev/hassmqtt v0.0.0-20231007091328-d7aee239f929
+	calmh.dev/hassmqtt v0.0.0-20231020181439-c1a6c3998391
 	github.com/alecthomas/kong v0.8.0
 	github.com/eclipse/paho.mqtt.golang v1.4.3
 	github.com/prometheus/client_golang v1.14.0

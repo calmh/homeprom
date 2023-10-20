@@ -26,7 +26,6 @@ type CLI struct {
 	Listen string `default:"0.0.0.0:2115" help:"HTTP listener address"`
 
 	MQTTBroker   string `help:"MQTT broker address" env:"MQTT_BROKER"`
-	MQTTClientID string `help:"MQTT client ID" env:"MQTT_CLIENT_ID"`
 	MQTTUsername string `help:"MQTT username" default:"" env:"MQTT_USERNAME"`
 	MQTTPassword string `help:"MQTT password" default:"" env:"MQTT_PASSWORD"`
 }
