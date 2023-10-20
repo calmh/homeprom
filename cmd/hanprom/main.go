@@ -2,9 +2,10 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 	"unicode"
@@ -38,21 +39,25 @@ func main() {
 	go main.ServeBackground(context.Background())
 
 	go func() {
+		slog.Info("Listening on HTTP", "address", cli.Listen)
 		if err := http.ListenAndServe(cli.Listen, promhttp.Handler()); err != nil {
-			log.Fatal(err)
+			slog.Error("Failed to listen", "address", cli.Listen, "error", err)
+			os.Exit(1)
 		}
 	}()
 
+	slog.Info("Dialing HAN", "address", cli.Addr)
 	conn, err := net.DialTimeout("tcp", cli.Addr, time.Minute)
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("Failed to connect", "address", cli.Addr, "error", err)
 	}
 
 	var mqttClient *mqttClient
 	if cli.MQTTBroker != "" {
 		mqttClient, err = getClient(&cli)
 		if err != nil {
-			log.Fatal(err)
+			slog.Error("Failed to create MQTT client", "broker", cli.MQTTBroker, "error", err)
+			os.Exit(1)
 		}
 		main.Add(mqttClient)
 	}
@@ -60,17 +65,20 @@ func main() {
 	framer := NewFramer(conn)
 	for {
 		if err := conn.SetReadDeadline(time.Now().Add(time.Minute)); err != nil {
-			log.Fatal(err)
+			slog.Error("Failed to set read deadline", "error", err)
+			os.Exit(1)
 		}
 		frame, err := framer.Read()
 		if err != nil {
-			log.Fatal(err)
+			slog.Error("Failed to read frame", "error", err)
+			os.Exit(1)
 		}
 
 		for _, d := range frame.Data {
 			val, err := Parse(d)
 			if err != nil {
-				log.Fatal(err)
+				slog.Error("Failed to parse data", "error", err)
+				os.Exit(1)
 			}
 
 			if strings.HasPrefix(val.Unit, "kW") {
@@ -88,6 +96,7 @@ func main() {
 			gauge.Set(val.Value)
 
 			if mqttClient != nil {
+				slog.Debug("Publishing to MQTT", "frame", frame, "value", val)
 				mqttClient.Publish(frame, val)
 			}
 		}

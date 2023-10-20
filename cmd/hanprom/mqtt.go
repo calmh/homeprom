@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"log/slog"
 	"os"
 	"time"
 
@@ -58,16 +59,19 @@ func getClient(cli *CLI) (*mqttClient, error) {
 }
 
 func (c *mqttClient) Serve(ctx context.Context) error {
+	slog.Info("Connecting to MQTT", "broker", c.opts.Servers[0], "client_id", c.opts.ClientID)
 	client := mqtt.NewClient(c.opts)
 	token := client.Connect()
 	token.Wait()
 	if err := token.Error(); err != nil {
+		slog.Error("Failed to connect to MQTT", "broker", c.opts.Servers[0], "client_id", c.opts.ClientID, "error", err)
 		return err
 	}
 	defer client.Disconnect(250)
 
 	for msg := range c.outbox {
 		if err := c.publish(client, msg.frame, msg.val); err != nil {
+			slog.Error("Failed to publish to MQTT", "broker", c.opts.Servers[0], "client_id", c.opts.ClientID, "error", err)
 			return err
 		}
 	}
