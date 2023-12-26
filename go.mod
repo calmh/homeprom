@@ -1,4 +1,4 @@
-module calmh.dev/hanprom
+module calmh.dev/homeprom
 
 go 1.21.2
 

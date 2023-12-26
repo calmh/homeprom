@@ -3,26 +3,17 @@ name: Build and Publish
 on:
   push:
 
-permissions:
-  packages: write
-  contents: read
-
 jobs:
   # define job to build and publish docker image
   build-and-push-docker-image:
     name: Build Docker image and push to repositories
+    # run only when code is compiling and tests are passing
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        package:
-          - hanprom
-          - gpsprom
-          - upsprom
 
     # steps to perform in job
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v2
 
       - name: Setup Go
         uses: actions/setup-go@v4
@@ -31,7 +22,7 @@ jobs:
 
       - name: Build binaries
         run: |
-          make ${{ matrix.package }}
+          make
 
       - name: Login to Github Packages
         uses: docker/login-action@v3
@@ -47,8 +38,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: cmd/${{ matrix.package }}/Dockerfile
           platforms: linux/amd64,linux/arm64
-          tags: ghcr.io/calmh/${{ matrix.package }}:latest
+          tags: ghcr.io/calmh/upsprom:latest
           # build on feature branches, push only on main branch
           push: ${{ github.ref == 'refs/heads/main' }}
