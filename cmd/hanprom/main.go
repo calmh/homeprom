@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 	"unicode"
@@ -19,7 +20,10 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-var gauges = make(map[string]prometheus.Gauge)
+var (
+	gauges    = make(map[string]prometheus.Gauge)
+	gaugeVecs = make(map[string]prometheus.GaugeVec)
+)
 
 type CLI struct {
 	Addr   string `default:"localhost:2113" help:"HAN address"`
@@ -85,14 +89,27 @@ func main() {
 				val.Unit = val.Unit[1:]
 			}
 
-			name := counterName(val)
-			gauge, ok := gauges[name]
-			if !ok {
-				gauge = prometheus.NewGauge(prometheus.GaugeOpts{Name: name})
-				prometheus.MustRegister(gauge)
-				gauges[name] = gauge
+			switch name, instance := counterName(val); instance {
+			case "":
+				// Just a gauge
+				gauge, ok := gauges[name]
+				if !ok {
+					gauge = prometheus.NewGauge(prometheus.GaugeOpts{Name: name})
+					prometheus.MustRegister(gauge)
+					gauges[name] = gauge
+				}
+				gauge.Set(val.Value)
+
+			default:
+				// A phase vector
+				gaugeVec, ok := gaugeVecs[name]
+				if !ok {
+					gaugeVec = *prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: name}, []string{"fas"})
+					prometheus.MustRegister(gaugeVec)
+					gaugeVecs[name] = gaugeVec
+				}
+				gaugeVec.WithLabelValues(instance).Set(val.Value)
 			}
-			gauge.Set(val.Value)
 
 			if mqttClient != nil {
 				slog.Debug("Publishing to MQTT", "frame", frame, "value", val)
@@ -102,12 +119,22 @@ func main() {
 	}
 }
 
-func counterName(v *Value) string {
-	name := sanitizeString(IdentDescr[v.Ident])
+var lExp = regexp.MustCompile(`^L[1-3]`)
+
+func counterName(v *Value) (name, instance string) {
+	name = IdentDescr[v.Ident]
+	if lExp.MatchString(name) {
+		instance = name[:2]
+		name = "fas_" + name[3:]
+	}
+
+	name = sanitizeString(name)
 	if v.Unit != "" {
 		name += "_" + v.Unit
 	}
-	return "han_" + name
+	name = "han_" + name
+
+	return
 }
 
 func sanitizeString(s string) string {
