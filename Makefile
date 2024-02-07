@@ -1,4 +1,4 @@
-all: gpsprom hanprom upsprom
+all: gpsprom hanprom upsprom ocppprom
 
 .PHONY: gpsprom
 gpsprom:
@@ -14,3 +14,8 @@ hanprom:
 upsprom:
 	mkdir -p bin
 	make -C cmd/upsprom
+
+.PHONY: ocppprom
+ocppprom:
+	mkdir -p bin
+	make -C cmd/ocppprom

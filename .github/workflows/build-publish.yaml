@@ -18,6 +18,7 @@ jobs:
           - hanprom
           - gpsprom
           - upsprom
+          - ocppprom
 
     # steps to perform in job
     steps:
