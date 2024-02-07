@@ -7,6 +7,8 @@ require (
 	github.com/alecthomas/kong v0.8.1
 	github.com/aliml92/ocpp v0.0.0-20230131044351-d3459aea5908
 	github.com/eclipse/paho.mqtt.golang v1.4.3
+	github.com/lmittmann/tint v1.0.4
+	github.com/mattn/go-isatty v0.0.20
 	github.com/prometheus/client_golang v1.17.0
 	github.com/thejerf/suture/v4 v4.0.2
 	go.bug.st/serial v1.6.1
