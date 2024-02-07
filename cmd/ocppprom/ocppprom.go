@@ -51,26 +51,32 @@ func main() {
 
 	csms.On("BootNotification", cast(bootNotification))
 	csms.On("Authorize", cast(authorize))
-	csms.On("Heartbeat", cast(heartbeat))
-	csms.On("StatusNotification", cast(statusNotification))
-	csms.On("MeterValues", cast(meterValues))
 	csms.On("DataTransfer", cast(dataTransfer))
+	csms.On("DiagnosticsStatusNotification", cast(diagnosticsStatusNotification))
+	csms.On("FirmwareStatusNotification", cast(firmwareStatusNotification))
+	csms.On("Heartbeat", cast(heartbeat))
+	csms.On("MeterValues", cast(meterValues))
+	csms.On("StartTransaction", cast(startTransaction))
+	csms.On("StatusNotification", cast(statusNotification))
+	csms.On("StopTransaction", cast(stopTransaction))
 
-	slog.Info("starting", "ocpp", *ocppAddr, "http", *httpAddr)
+	csms.After("BootNotification", changeConfigration)
+
+	slog.Info("Starting", "ocpp", *ocppAddr, "http", *httpAddr)
 	csms.Start(*ocppAddr, "/ws/", nil)
 }
 
 func customPreUpgradeHandler(w http.ResponseWriter, r *http.Request) bool {
 	u, _, ok := r.BasicAuth()
 	if !ok {
-		slog.Info("error parsing basic auth")
+		slog.Error("Error parsing basic auth")
 		w.WriteHeader(401)
 		return false
 	}
 	path := strings.Split(r.URL.Path, "/")
 	id := path[len(path)-1]
 	if u != id {
-		slog.Info("username provided is incorrect")
+		slog.Error("Username provided is incorrect")
 		w.WriteHeader(401)
 		return false
 	}
@@ -86,30 +92,36 @@ func bootNotification(cp *ocpp.ChargePoint, p *v16.BootNotificationReq) *v16.Boo
 	}
 }
 
-func heartbeat(cp *ocpp.ChargePoint, p *v16.HeartbeatReq) *v16.HeartbeatConf {
-	chargerLastHeartbeat.Set(float64(time.Now().UnixNano() / int64(time.Millisecond)))
-	return &v16.HeartbeatConf{
-		CurrentTime: time.Now().UTC().Format(time.RFC3339Nano),
+func changeConfigration(cp *ocpp.ChargePoint, _ ocpp.Payload) {
+	reqs := []v16.ChangeConfigurationReq{
+		{
+			Key:   "ClockAlignedDataInterval",
+			Value: "120",
+		},
+		{
+			Key:   "MeterValuesAlignedData",
+			Value: "Current.Import,Energy.Active.Import.Register,SoC",
+		},
+		{
+			Key:   "MeterValueSampleInterval",
+			Value: "Current.Import,Energy.Active.Import.Register,SoC",
+		},
+		{
+			Key:   "MeterValuesSampledData",
+			Value: "30",
+		},
+		{
+			Key:   "MinimumStatusDuration",
+			Value: "15",
+		},
 	}
-}
-
-func dataTransfer(cp *ocpp.ChargePoint, p *v16.DataTransferReq) *v16.DataTransferConf {
-	slog.Info("DataTransfer", "p", p)
-	return &v16.DataTransferConf{
-		Status: "Accepted",
+	for _, req := range reqs {
+		_, err := cp.Call("ChangeConfiguration", &req)
+		if err != nil {
+			slog.Error("Failed to change configuration", "key", req.Key, "val", req.Value, "error", err)
+		}
 	}
-}
-
-func statusNotification(cp *ocpp.ChargePoint, p *v16.StatusNotificationReq) *v16.StatusNotificationConf {
-	idx := slices.Index(chargerStates, p.Status)
-	slog.Info("Status", "p", p, "idx", idx)
-	chargerState.Set(float64(idx))
-	return &v16.StatusNotificationConf{}
-}
-
-func meterValues(cp *ocpp.ChargePoint, p *v16.MeterValuesReq) *v16.MeterValuesConf {
-	slog.Info("MeterValues", "p", p)
-	return &v16.MeterValuesConf{}
+	slog.Info("Updated configuration")
 }
 
 func authorize(cp *ocpp.ChargePoint, p *v16.AuthorizeReq) *v16.AuthorizeConf {
@@ -120,11 +132,66 @@ func authorize(cp *ocpp.ChargePoint, p *v16.AuthorizeReq) *v16.AuthorizeConf {
 	}
 }
 
+func dataTransfer(cp *ocpp.ChargePoint, p *v16.DataTransferReq) *v16.DataTransferConf {
+	slog.Info("DataTransfer", "p", p)
+	return &v16.DataTransferConf{
+		Status: "Accepted",
+	}
+}
+
+func diagnosticsStatusNotification(cp *ocpp.ChargePoint, p *v16.DiagnosticsStatusNotificationReq) *v16.DiagnosticsStatusNotificationConf {
+	slog.Info("DiagnosticsStatusNotification", "p", p)
+	return &v16.DiagnosticsStatusNotificationConf{}
+}
+
+func firmwareStatusNotification(cp *ocpp.ChargePoint, p *v16.FirmwareStatusNotificationReq) *v16.FirmwareStatusNotificationConf {
+	slog.Info("FirmwareStatusNotification", "p", p)
+	return &v16.FirmwareStatusNotificationConf{}
+}
+
+func heartbeat(cp *ocpp.ChargePoint, p *v16.HeartbeatReq) *v16.HeartbeatConf {
+	chargerLastHeartbeat.Set(float64(time.Now().UnixNano() / int64(time.Millisecond)))
+	return &v16.HeartbeatConf{
+		CurrentTime: time.Now().UTC().Format(time.RFC3339Nano),
+	}
+}
+
+func meterValues(cp *ocpp.ChargePoint, p *v16.MeterValuesReq) *v16.MeterValuesConf {
+	slog.Info("MeterValues", "p", p)
+	return &v16.MeterValuesConf{}
+}
+
+func startTransaction(cp *ocpp.ChargePoint, p *v16.StartTransactionReq) *v16.StartTransactionConf {
+	slog.Info("StartTransaction", "p", p)
+	return &v16.StartTransactionConf{
+		IdTagInfo: v16.IdTagInfo{
+			Status: "Accepted",
+		},
+		TransactionId: int(time.Now().Unix()),
+	}
+}
+
+func statusNotification(cp *ocpp.ChargePoint, p *v16.StatusNotificationReq) *v16.StatusNotificationConf {
+	idx := slices.Index(chargerStates, p.Status)
+	slog.Info("StatusNotification", "p", p, "idx", idx)
+	chargerState.Set(float64(idx))
+	return &v16.StatusNotificationConf{}
+}
+
+func stopTransaction(cp *ocpp.ChargePoint, p *v16.StopTransactionReq) *v16.StopTransactionConf {
+	slog.Info("StopTransaction", "p", p)
+	return &v16.StopTransactionConf{
+		IdTagInfo: v16.IdTagInfo{
+			Status: "Accepted",
+		},
+	}
+}
+
 func cast[R, C any](fn func(cp *ocpp.ChargePoint, p R) C) func(cp *ocpp.ChargePoint, p ocpp.Payload) ocpp.Payload {
 	return func(cp *ocpp.ChargePoint, p ocpp.Payload) ocpp.Payload {
 		r, ok := p.(R)
 		if !ok {
-			slog.Error("failed to cast", "p", p, "r", new(R))
+			slog.Error("Failed to cast", "p", p, "r", new(R))
 			return nil
 		}
 		return fn(cp, r)
