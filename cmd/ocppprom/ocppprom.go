@@ -1,17 +1,19 @@
 package main
 
 import (
-	"flag"
-	"log"
 	"log/slog"
 	"net/http"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/alecthomas/kong"
 	"github.com/aliml92/ocpp"
 	v16 "github.com/aliml92/ocpp/v16"
+	"github.com/lmittmann/tint"
+	"github.com/mattn/go-isatty"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -36,14 +38,35 @@ var (
 
 var chargerStates = []string{"", "Available", "Preparing", "Charging", "SuspendedEV", "SuspendedEVSE", "Finishing", "Reserved", "Unavailable", "Faulted"}
 
+type CLI struct {
+	HTTPListen string `short:"h" default:":2118"`
+	OCPPListen string `short:"o" default:":8999"`
+	Debug      bool   `short:"v"`
+}
+
 func main() {
-	httpAddr := flag.String("http-listen", ":2118", "HTTP address to listen on")
-	ocppAddr := flag.String("ocpp-listen", ":8999", "OCPP address to listen on")
-	flag.Parse()
+	var cli CLI
+	kong.Parse(&cli)
+
+	level := slog.LevelInfo
+	if cli.Debug {
+		level = slog.LevelDebug
+	}
+	slog.SetDefault(slog.New(
+		tint.NewHandler(os.Stdout, &tint.Options{
+			Level:      level,
+			TimeFormat: time.TimeOnly,
+			NoColor:    !isatty.IsTerminal(os.Stdout.Fd()),
+		}),
+	))
+
+	slog.Info("Starting", "ocpp", cli.OCPPListen, "http", cli.HTTPListen)
 
 	go func() {
 		http.Handle("/metrics", promhttp.Handler())
-		log.Fatal(http.ListenAndServe(*httpAddr, nil))
+		if err := http.ListenAndServe(cli.HTTPListen, nil); err != nil {
+			slog.Error("Failed to listen for metrics", "error", err)
+		}
 	}()
 
 	csms = ocpp.NewServer()
@@ -66,8 +89,7 @@ func main() {
 
 	csms.After("BootNotification", changeConfigration)
 
-	slog.Info("Starting", "ocpp", *ocppAddr, "http", *httpAddr)
-	csms.Start(*ocppAddr, "/ws/", nil)
+	csms.Start(cli.OCPPListen, "/ws/", nil)
 }
 
 func customPreUpgradeHandler(w http.ResponseWriter, r *http.Request) bool {
@@ -89,6 +111,7 @@ func customPreUpgradeHandler(w http.ResponseWriter, r *http.Request) bool {
 
 func bootNotification(cp *ocpp.ChargePoint, p *v16.BootNotificationReq) *v16.BootNotificationConf {
 	chargerInfo.WithLabelValues(p.ChargePointVendor, p.ChargePointModel, p.ChargePointSerialNumber).Set(1)
+	slog.Info("Charge point connected", "vendor", p.ChargePointVendor, "model", p.ChargePointModel, "serial", p.ChargePointSerialNumber)
 	return &v16.BootNotificationConf{
 		CurrentTime: time.Now().UTC().Format(time.RFC3339Nano),
 		Interval:    60,
@@ -125,7 +148,7 @@ func changeConfigration(cp *ocpp.ChargePoint, _ ocpp.Payload) {
 			slog.Error("Failed to change configuration", "key", req.Key, "val", req.Value, "error", err)
 		}
 	}
-	slog.Info("Updated configuration")
+	slog.Debug("Updated configuration")
 }
 
 func authorize(cp *ocpp.ChargePoint, p *v16.AuthorizeReq) *v16.AuthorizeConf {
@@ -137,19 +160,19 @@ func authorize(cp *ocpp.ChargePoint, p *v16.AuthorizeReq) *v16.AuthorizeConf {
 }
 
 func dataTransfer(cp *ocpp.ChargePoint, p *v16.DataTransferReq) *v16.DataTransferConf {
-	slog.Info("DataTransfer", "p", p)
+	slog.Debug("DataTransfer", "p", p)
 	return &v16.DataTransferConf{
 		Status: "Accepted",
 	}
 }
 
 func diagnosticsStatusNotification(cp *ocpp.ChargePoint, p *v16.DiagnosticsStatusNotificationReq) *v16.DiagnosticsStatusNotificationConf {
-	slog.Info("DiagnosticsStatusNotification", "p", p)
+	slog.Debug("DiagnosticsStatusNotification", "p", p)
 	return &v16.DiagnosticsStatusNotificationConf{}
 }
 
 func firmwareStatusNotification(cp *ocpp.ChargePoint, p *v16.FirmwareStatusNotificationReq) *v16.FirmwareStatusNotificationConf {
-	slog.Info("FirmwareStatusNotification", "p", p)
+	slog.Debug("FirmwareStatusNotification", "p", p)
 	return &v16.FirmwareStatusNotificationConf{}
 }
 
@@ -161,7 +184,7 @@ func heartbeat(cp *ocpp.ChargePoint, p *v16.HeartbeatReq) *v16.HeartbeatConf {
 }
 
 func meterValues(cp *ocpp.ChargePoint, p *v16.MeterValuesReq) *v16.MeterValuesConf {
-	slog.Info("MeterValues", "p", p)
+	slog.Debug("MeterValues", "p", p)
 	for _, mv := range p.MeterValue {
 		for _, sv := range mv.SampledValue {
 			val, err := strconv.ParseFloat(sv.Value, 64)
@@ -177,7 +200,7 @@ func meterValues(cp *ocpp.ChargePoint, p *v16.MeterValuesReq) *v16.MeterValuesCo
 }
 
 func startTransaction(cp *ocpp.ChargePoint, p *v16.StartTransactionReq) *v16.StartTransactionConf {
-	slog.Info("StartTransaction", "p", p)
+	slog.Info("Start transaction", "meter", p.MeterStart)
 	return &v16.StartTransactionConf{
 		IdTagInfo: v16.IdTagInfo{
 			Status: "Accepted",
@@ -188,13 +211,13 @@ func startTransaction(cp *ocpp.ChargePoint, p *v16.StartTransactionReq) *v16.Sta
 
 func statusNotification(cp *ocpp.ChargePoint, p *v16.StatusNotificationReq) *v16.StatusNotificationConf {
 	idx := slices.Index(chargerStates, p.Status)
-	slog.Info("StatusNotification", "p", p, "idx", idx)
+	slog.Info("Status notification", "status", p.Status, "statusIdx", idx, "info", p.Info)
 	chargerState.Set(float64(idx))
 	return &v16.StatusNotificationConf{}
 }
 
 func stopTransaction(cp *ocpp.ChargePoint, p *v16.StopTransactionReq) *v16.StopTransactionConf {
-	slog.Info("StopTransaction", "p", p)
+	slog.Info("Stop transaction", "meter", p.MeterStop, "reason", p.Reason)
 	return &v16.StopTransactionConf{
 		IdTagInfo: v16.IdTagInfo{
 			Status: "Accepted",
