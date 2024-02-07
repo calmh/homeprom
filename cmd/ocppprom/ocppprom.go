@@ -120,14 +120,18 @@ func bootNotification(cp *ocpp.ChargePoint, p *v16.BootNotificationReq) *v16.Boo
 }
 
 func changeConfigration(cp *ocpp.ChargePoint, _ ocpp.Payload) {
-	reqs := []v16.ChangeConfigurationReq{
+	type changeConfigurationReq struct {
+		Key   string `json:"key" validate:"required,max=50"`
+		Value string `json:"value" validate:"required,max=500"`
+	}
+	reqs := []changeConfigurationReq{
 		{
 			Key:   "ClockAlignedDataInterval",
 			Value: "300",
 		},
 		{
 			Key:   "MeterValuesAlignedData",
-			Value: "Energy.Active.Import.Register",
+			Value: "Energy.Active.Import.Register,Voltage,SoC",
 		},
 		{
 			Key:   "MeterValueSampleInterval",
@@ -135,7 +139,7 @@ func changeConfigration(cp *ocpp.ChargePoint, _ ocpp.Payload) {
 		},
 		{
 			Key:   "MeterValuesSampledData",
-			Value: "Energy.Active.Import.Register",
+			Value: "Energy.Active.Import.Register,Current.Import,Voltage,SoC,Temperature",
 		},
 		{
 			Key:   "MinimumStatusDuration",
@@ -143,7 +147,7 @@ func changeConfigration(cp *ocpp.ChargePoint, _ ocpp.Payload) {
 		},
 	}
 	for _, req := range reqs {
-		_, err := cp.Call("ChangeConfiguration", &req)
+		_, err := cp.Call("ChangeConfiguration", req)
 		if err != nil {
 			slog.Error("Failed to change configuration", "key", req.Key, "val", req.Value, "error", err)
 		}
