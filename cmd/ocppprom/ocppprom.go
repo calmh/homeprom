@@ -214,7 +214,7 @@ func meterValues(cp *ocpp.ChargePoint, p *v16.MeterValuesReq) *v16.MeterValuesCo
 }
 
 func startTransaction(cp *ocpp.ChargePoint, p *v16.StartTransactionReq) *v16.StartTransactionConf {
-	slog.Info("Start transaction", "meter", p.MeterStart)
+	slog.Info("Start transaction", "meter", ptrv(p.MeterStart))
 	return &v16.StartTransactionConf{
 		IdTagInfo: v16.IdTagInfo{
 			Status: "Accepted",
@@ -231,7 +231,7 @@ func statusNotification(cp *ocpp.ChargePoint, p *v16.StatusNotificationReq) *v16
 }
 
 func stopTransaction(cp *ocpp.ChargePoint, p *v16.StopTransactionReq) *v16.StopTransactionConf {
-	slog.Info("Stop transaction", "meter", p.MeterStop, "reason", p.Reason)
+	slog.Info("Stop transaction", "meter", ptrv(p.MeterStop), "reason", p.Reason)
 	return &v16.StopTransactionConf{
 		IdTagInfo: v16.IdTagInfo{
 			Status: "Accepted",
@@ -248,4 +248,11 @@ func cast[R, C any](fn func(cp *ocpp.ChargePoint, p R) C) func(cp *ocpp.ChargePo
 		}
 		return fn(cp, r)
 	}
+}
+
+func ptrv(p *int) int {
+	if p == nil {
+		return 0
+	}
+	return *p
 }
