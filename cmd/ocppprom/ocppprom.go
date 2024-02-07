@@ -124,27 +124,13 @@ func changeConfigration(cp *ocpp.ChargePoint, _ ocpp.Payload) {
 		Key   string `json:"key" validate:"required,max=50"`
 		Value string `json:"value" validate:"required,max=500"`
 	}
+	const meterValues = "Current.Import,Energy.Active.Import.Register,Power.Active.Import"
 	reqs := []changeConfigurationReq{
-		{
-			Key:   "ClockAlignedDataInterval",
-			Value: "300",
-		},
-		{
-			Key:   "MeterValuesAlignedData",
-			Value: "Current.Import,Energy.Active.Import.Register,Power.Active.Import",
-		},
-		{
-			Key:   "MeterValueSampleInterval",
-			Value: "5",
-		},
-		{
-			Key:   "MeterValuesSampledData",
-			Value: "Current.Import,Energy.Active.Import.Register,Power.Active.Import",
-		},
-		{
-			Key:   "MinimumStatusDuration",
-			Value: "30",
-		},
+		{Key: "MeterValuesAlignedData", Value: meterValues},
+		{Key: "MeterValuesSampledData", Value: meterValues},
+		{Key: "ClockAlignedDataInterval", Value: "300"},
+		{Key: "MeterValueSampleInterval", Value: "5"},
+		{Key: "MinimumStatusDuration", Value: "30"},
 	}
 	for _, req := range reqs {
 		res, err := cp.Call("ChangeConfiguration", req)
@@ -161,6 +147,21 @@ func changeConfigration(cp *ocpp.ChargePoint, _ ocpp.Payload) {
 			slog.Debug("Set config", "key", req.Key, "val", req.Value)
 		}
 	}
+
+	// Nothing happens when we try to trigger a MeterValues outside of a
+	// transaction. Also we don't get the clock aligned messages either...
+
+	// res, err := cp.Call("TriggerMessage", v16.TriggerMessageReq{RequestedMessage: "MeterValues", ConnectorId: vptr(1)})
+	// if err != nil {
+	// 	slog.Error("Failed to trigger message", "err", err)
+	// }
+	// if conf, ok := res.(*v16.TriggerMessageConf); !ok {
+	// 	slog.Error("Response of bad type", "res", res)
+	// } else if conf.Status != "Accepted" {
+	// 	slog.Error("Failed to trigger message", "status", conf.Status)
+	// } else {
+	// 	slog.Debug("Triggered meter values message")
+	// }
 }
 
 func authorize(cp *ocpp.ChargePoint, p *v16.AuthorizeReq) *v16.AuthorizeConf {
