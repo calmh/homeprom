@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +26,9 @@ var (
 	chargerState = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "charger_state",
 	})
+	chargerMeterValue = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "charger_meter_value",
+	}, []string{"measurand"})
 	chargerLastHeartbeat = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "charger_last_heartbeat",
 	})
@@ -96,7 +100,7 @@ func changeConfigration(cp *ocpp.ChargePoint, _ ocpp.Payload) {
 	reqs := []v16.ChangeConfigurationReq{
 		{
 			Key:   "ClockAlignedDataInterval",
-			Value: "120",
+			Value: "300",
 		},
 		{
 			Key:   "MeterValuesAlignedData",
@@ -104,11 +108,11 @@ func changeConfigration(cp *ocpp.ChargePoint, _ ocpp.Payload) {
 		},
 		{
 			Key:   "MeterValueSampleInterval",
-			Value: "Current.Import,Energy.Active.Import.Register,SoC",
+			Value: "15",
 		},
 		{
 			Key:   "MeterValuesSampledData",
-			Value: "30",
+			Value: "Current.Import,Energy.Active.Import.Register,SoC",
 		},
 		{
 			Key:   "MinimumStatusDuration",
@@ -158,6 +162,17 @@ func heartbeat(cp *ocpp.ChargePoint, p *v16.HeartbeatReq) *v16.HeartbeatConf {
 
 func meterValues(cp *ocpp.ChargePoint, p *v16.MeterValuesReq) *v16.MeterValuesConf {
 	slog.Info("MeterValues", "p", p)
+	for _, mv := range p.MeterValue {
+		for _, sv := range mv.SampledValue {
+			val, err := strconv.ParseFloat(sv.Value, 64)
+			if err != nil {
+				continue
+			}
+			key := strings.Join([]string{sv.Measurand, sv.Phase, sv.Unit}, "/")
+			key = strings.ReplaceAll(key, "//", "/")
+			chargerMeterValue.WithLabelValues(key).Set(val)
+		}
+	}
 	return &v16.MeterValuesConf{}
 }
 
