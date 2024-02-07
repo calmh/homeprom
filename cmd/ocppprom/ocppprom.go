@@ -104,19 +104,19 @@ func changeConfigration(cp *ocpp.ChargePoint, _ ocpp.Payload) {
 		},
 		{
 			Key:   "MeterValuesAlignedData",
-			Value: "Current.Import,Energy.Active.Import.Register,SoC",
+			Value: "Energy.Active.Import.Register",
 		},
 		{
 			Key:   "MeterValueSampleInterval",
-			Value: "15",
+			Value: "5",
 		},
 		{
 			Key:   "MeterValuesSampledData",
-			Value: "Current.Import,Energy.Active.Import.Register,SoC",
+			Value: "Energy.Active.Import.Register",
 		},
 		{
 			Key:   "MinimumStatusDuration",
-			Value: "15",
+			Value: "30",
 		},
 	}
 	for _, req := range reqs {
