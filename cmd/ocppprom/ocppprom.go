@@ -131,7 +131,7 @@ func changeConfigration(cp *ocpp.ChargePoint, _ ocpp.Payload) {
 		},
 		{
 			Key:   "MeterValuesAlignedData",
-			Value: "Energy.Active.Import.Register,Voltage,SoC",
+			Value: "Energy.Active.Import.Register",
 		},
 		{
 			Key:   "MeterValueSampleInterval",
@@ -139,7 +139,7 @@ func changeConfigration(cp *ocpp.ChargePoint, _ ocpp.Payload) {
 		},
 		{
 			Key:   "MeterValuesSampledData",
-			Value: "Energy.Active.Import.Register,Current.Import,Voltage,SoC,Temperature",
+			Value: "Current.Import,Energy.Active.Import.Register,Power.Active.Import,SoC,Temperature,Voltage",
 		},
 		{
 			Key:   "MinimumStatusDuration",
@@ -147,10 +147,17 @@ func changeConfigration(cp *ocpp.ChargePoint, _ ocpp.Payload) {
 		},
 	}
 	for _, req := range reqs {
-		_, err := cp.Call("ChangeConfiguration", req)
+		res, err := cp.Call("ChangeConfiguration", req)
 		if err != nil {
 			slog.Error("Failed to change configuration", "key", req.Key, "val", req.Value, "error", err)
 		}
+		if conf, ok := res.(*v16.ChangeConfigurationConf); !ok {
+			slog.Error("Response of bad type", "res", res)
+			continue
+		} else if conf.Status != "Accepted" {
+			slog.Error("Failed to change configuration", "key", req.Key, "val", req.Value, "status", conf.Status)
+		}
+
 	}
 	slog.Debug("Updated configuration")
 }
