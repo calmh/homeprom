@@ -41,7 +41,13 @@ var chargerStates = []string{"", "Available", "Preparing", "Charging", "Suspende
 type CLI struct {
 	HTTPListen string `short:"h" default:":2118"`
 	OCPPListen string `short:"o" default:":8999"`
-	Debug      bool   `short:"v"`
+
+	SampleIntervalS       int    `short:"s" default:"2"`
+	ClockAlignedIntervalS int    `short:"c" default:"900"`
+	Measurands            string `short:"m" default:"Current.Import,Energy.Active.Import.Register,Power.Active.Import"`
+	MinStatusDurationS    int    `short:"d" default:"2"`
+
+	Debug bool `short:"v"`
 }
 
 func main() {
@@ -87,7 +93,13 @@ func main() {
 	csms.On("StatusNotification", cast(statusNotification))
 	csms.On("StopTransaction", cast(stopTransaction))
 
-	csms.After("BootNotification", changeConfigration)
+	cfg := &config{
+		MeterValueSampleIntervalS: cli.SampleIntervalS,
+		ClockAlignedDataIntervalS: cli.ClockAlignedIntervalS,
+		Measurands:                cli.Measurands,
+		MinimumStatusDurationS:    cli.MinStatusDurationS,
+	}
+	csms.After("BootNotification", cfg.changeConfigration)
 
 	csms.Start(cli.OCPPListen, "/ws/", nil)
 }
@@ -119,18 +131,24 @@ func bootNotification(cp *ocpp.ChargePoint, p *v16.BootNotificationReq) *v16.Boo
 	}
 }
 
-func changeConfigration(cp *ocpp.ChargePoint, _ ocpp.Payload) {
+type config struct {
+	MeterValueSampleIntervalS int
+	ClockAlignedDataIntervalS int
+	MinimumStatusDurationS    int
+	Measurands                string
+}
+
+func (c *config) changeConfigration(cp *ocpp.ChargePoint, _ ocpp.Payload) {
 	type changeConfigurationReq struct {
 		Key   string `json:"key" validate:"required,max=50"`
 		Value string `json:"value" validate:"required,max=500"`
 	}
-	const meterValues = "Current.Import,Energy.Active.Import.Register,Power.Active.Import"
 	reqs := []changeConfigurationReq{
-		{Key: "MeterValuesAlignedData", Value: meterValues},
-		{Key: "MeterValuesSampledData", Value: meterValues},
-		{Key: "ClockAlignedDataInterval", Value: "300"},
-		{Key: "MeterValueSampleInterval", Value: "5"},
-		{Key: "MinimumStatusDuration", Value: "30"},
+		{Key: "MeterValuesAlignedData", Value: c.Measurands},
+		{Key: "MeterValuesSampledData", Value: c.Measurands},
+		{Key: "ClockAlignedDataInterval", Value: strconv.Itoa(c.ClockAlignedDataIntervalS)},
+		{Key: "MeterValueSampleInterval", Value: strconv.Itoa(c.MeterValueSampleIntervalS)},
+		{Key: "MinimumStatusDuration", Value: strconv.Itoa(c.MinimumStatusDurationS)},
 	}
 	for _, req := range reqs {
 		res, err := cp.Call("ChangeConfiguration", req)
