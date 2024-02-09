@@ -44,7 +44,7 @@ type CLI struct {
 
 	SampleIntervalS       int    `short:"s" default:"2"`
 	ClockAlignedIntervalS int    `short:"c" default:"900"`
-	Measurands            string `short:"m" default:"Current.Import,Energy.Active.Import.Register,Power.Active.Import"`
+	Measurands            string `short:"m" default:"Energy.Active.Import.Register"`
 	MinStatusDurationS    int    `short:"d" default:"2"`
 
 	Debug bool `short:"v"`
@@ -169,17 +169,29 @@ func (c *config) changeConfigration(cp *ocpp.ChargePoint, _ ocpp.Payload) {
 	// Nothing happens when we try to trigger a MeterValues outside of a
 	// transaction. Also we don't get the clock aligned messages either...
 
-	// res, err := cp.Call("TriggerMessage", v16.TriggerMessageReq{RequestedMessage: "MeterValues", ConnectorId: vptr(1)})
-	// if err != nil {
-	// 	slog.Error("Failed to trigger message", "err", err)
-	// }
-	// if conf, ok := res.(*v16.TriggerMessageConf); !ok {
-	// 	slog.Error("Response of bad type", "res", res)
-	// } else if conf.Status != "Accepted" {
-	// 	slog.Error("Failed to trigger message", "status", conf.Status)
-	// } else {
-	// 	slog.Debug("Triggered meter values message")
-	// }
+	res, err := cp.Call("TriggerMessage", v16.TriggerMessageReq{RequestedMessage: "MeterValues"})
+	if err != nil {
+		slog.Error("Failed to trigger message", "err", err)
+	}
+	if conf, ok := res.(*v16.TriggerMessageConf); !ok {
+		slog.Error("Response of bad type", "res", res)
+	} else if conf.Status != "Accepted" {
+		slog.Error("Failed to trigger message", "status", conf.Status)
+	} else {
+		slog.Debug("Triggered meter values message")
+	}
+
+	res, err = cp.Call("TriggerMessage", v16.TriggerMessageReq{RequestedMessage: "MeterValues", ConnectorId: vptr(1)})
+	if err != nil {
+		slog.Error("Failed to trigger message", "err", err)
+	}
+	if conf, ok := res.(*v16.TriggerMessageConf); !ok {
+		slog.Error("Response of bad type", "res", res)
+	} else if conf.Status != "Accepted" {
+		slog.Error("Failed to trigger message", "status", conf.Status)
+	} else {
+		slog.Debug("Triggered meter values message")
+	}
 }
 
 func authorize(cp *ocpp.ChargePoint, p *v16.AuthorizeReq) *v16.AuthorizeConf {
@@ -275,3 +287,5 @@ func ptrv(p *int) int {
 	}
 	return *p
 }
+
+func vptr(v int) *int { return &v }
