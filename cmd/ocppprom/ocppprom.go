@@ -17,6 +17,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/syndtr/goleveldb/leveldb"
 )
 
 var csms *ocpp.Server
@@ -25,15 +26,9 @@ var (
 	chargerInfo = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "charger_info",
 	}, []string{"vendor", "model", "serial"})
-	chargerState = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "charger_state",
-	})
-	chargerMeterValue = promauto.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "charger_meter_value",
-	}, []string{"measurand"})
-	chargerLastHeartbeat = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "charger_last_heartbeat",
-	})
+	chargerState         *persistentGauge
+	chargerMeterValue    *persistentGaugeVec
+	chargerLastHeartbeat *persistentGauge
 )
 
 var chargerStates = []string{"", "Available", "Preparing", "Charging", "SuspendedEV", "SuspendedEVSE", "Finishing", "Reserved", "Unavailable", "Faulted"}
@@ -46,6 +41,8 @@ type CLI struct {
 	ClockAlignedIntervalS int    `short:"c" default:"900"`
 	Measurands            string `short:"m" default:"Energy.Active.Import.Register"`
 	MinStatusDurationS    int    `short:"d" default:"30"`
+
+	StateDatabase string `short:"b" default:"~/ocppprom.db" env:"STATE_DATABASE"`
 
 	Debug bool `short:"v"`
 }
@@ -65,6 +62,23 @@ func main() {
 			NoColor:    !isatty.IsTerminal(os.Stdout.Fd()),
 		}),
 	))
+
+	db, err := leveldb.OpenFile(cli.StateDatabase, nil)
+	if err != nil {
+		slog.Error("Failed to open database", "err", err)
+		os.Exit(1)
+	}
+
+	pm := &persistentMetrics{db: db}
+	chargerState = pm.NewGauge(prometheus.GaugeOpts{
+		Name: "charger_state",
+	})
+	chargerMeterValue = pm.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "charger_meter_value",
+	}, []string{"measurand"})
+	chargerLastHeartbeat = pm.NewGauge(prometheus.GaugeOpts{
+		Name: "charger_last_heartbeat",
+	})
 
 	slog.Info("Starting", "ocpp", cli.OCPPListen, "http", cli.HTTPListen)
 
@@ -223,7 +237,7 @@ func meterValues(cp *ocpp.ChargePoint, p *v16.MeterValuesReq) *v16.MeterValuesCo
 			}
 			key = strings.ReplaceAll(key, "//", "/")
 			slog.Debug("Set meter value", "key", key, "val", val)
-			chargerMeterValue.WithLabelValues(key).Set(val)
+			chargerMeterValue.Set(val, key)
 		}
 	}
 	return &v16.MeterValuesConf{}
