@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/binary"
-	"errors"
 	"log/slog"
 	"math"
 	"strings"
@@ -12,7 +11,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	io_prometheus_client "github.com/prometheus/client_model/go"
 	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/syndtr/goleveldb/leveldb/iterator"
 	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
@@ -39,24 +37,13 @@ func (p *persistentMetrics) NewGaugeVec(opts prometheus.GaugeOpts, labels []stri
 
 	baseKey := name + "\x00"
 
-	load := func(it iterator.Iterator) int {
-		n := 0
-		defer it.Release()
-		for it.Next() {
-			_, labels := p.parseKey(it.Key())
-			val := math.Float64frombits(binary.BigEndian.Uint64(it.Value()))
-			slog.Debug("setting", "name", name, "labels", labels, "val", val)
-			gv.WithLabelValues(labels...).Set(val)
-			n++
-		}
-		return n
-	}
-
 	it := p.db.NewIterator(util.BytesPrefix([]byte(baseKey)), nil)
-	if load(it) == 0 {
-		// try again with legacy prefix
-		it := p.db.NewIterator(util.BytesPrefix([]byte("__"+baseKey)), nil)
-		load(it)
+	defer it.Release()
+	for it.Next() {
+		_, labels := p.parseKey(it.Key())
+		val := math.Float64frombits(binary.BigEndian.Uint64(it.Value()))
+		slog.Debug("setting", "name", name, "labels", labels, "val", val)
+		gv.WithLabelValues(labels...).Set(val)
 	}
 
 	return gv
@@ -69,9 +56,6 @@ func (p *persistentMetrics) NewGauge(opts prometheus.GaugeOpts) prometheus.Gauge
 
 	key := name + "\x00"
 	valBytes, err := p.db.Get([]byte(key), nil)
-	if errors.Is(err, leveldb.ErrNotFound) {
-		valBytes, err = p.db.Get([]byte("__"+key), nil) // legacy
-	}
 	if err == nil {
 		val := math.Float64frombits(binary.BigEndian.Uint64(valBytes))
 		slog.Debug("setting", "name", name, "val", val)
