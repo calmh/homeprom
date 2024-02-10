@@ -15,36 +15,33 @@ import (
 )
 
 type persistentMetrics struct {
-	db        *leveldb.DB
-	gauges    map[string]prometheus.Gauge
-	gaugeVecs map[string]*prometheus.GaugeVec
-	putCache  map[string]float64
+	db         *leveldb.DB
+	collectors map[string]prometheus.Collector
+	putCache   map[string]float64
 }
 
 func newPersistentMetrics(db *leveldb.DB) *persistentMetrics {
 	return &persistentMetrics{
-		db:        db,
-		gauges:    make(map[string]prometheus.Gauge),
-		gaugeVecs: make(map[string]*prometheus.GaugeVec),
-		putCache:  make(map[string]float64),
+		db:         db,
+		collectors: make(map[string]prometheus.Collector),
+		putCache:   make(map[string]float64),
 	}
 }
 
 func (p *persistentMetrics) NewGaugeVec(opts prometheus.GaugeOpts, labels []string) *prometheus.GaugeVec {
 	gv := promauto.NewGaugeVec(opts, labels)
 	name := prometheus.BuildFQName(opts.Namespace, opts.Subsystem, opts.Name)
-	p.gaugeVecs[name] = gv
+	p.collectors[name] = gv
+	p.loadMultiple(name, func(labels []string) adder { return gv.WithLabelValues(labels...) })
 
-	baseKey := name + "\x00"
+	return gv
+}
 
-	it := p.db.NewIterator(util.BytesPrefix([]byte(baseKey)), nil)
-	defer it.Release()
-	for it.Next() {
-		_, labels := p.parseKey(it.Key())
-		val := math.Float64frombits(binary.BigEndian.Uint64(it.Value()))
-		slog.Debug("setting", "name", name, "labels", labels, "val", val)
-		gv.WithLabelValues(labels...).Set(val)
-	}
+func (p *persistentMetrics) NewCounterVec(opts prometheus.CounterOpts, labels []string) *prometheus.CounterVec {
+	gv := promauto.NewCounterVec(opts, labels)
+	name := prometheus.BuildFQName(opts.Namespace, opts.Subsystem, opts.Name)
+	p.collectors[name] = gv
+	p.loadMultiple(name, func(labels []string) adder { return gv.WithLabelValues(labels...) })
 
 	return gv
 }
@@ -52,17 +49,45 @@ func (p *persistentMetrics) NewGaugeVec(opts prometheus.GaugeOpts, labels []stri
 func (p *persistentMetrics) NewGauge(opts prometheus.GaugeOpts) prometheus.Gauge {
 	g := promauto.NewGauge(opts)
 	name := prometheus.BuildFQName(opts.Namespace, opts.Subsystem, opts.Name)
-	p.gauges[name] = g
+	p.collectors[name] = g
+	p.loadSingle(name, g)
 
+	return g
+}
+
+func (p *persistentMetrics) NewCounter(opts prometheus.CounterOpts) prometheus.Counter {
+	g := promauto.NewCounter(opts)
+	name := prometheus.BuildFQName(opts.Namespace, opts.Subsystem, opts.Name)
+	p.collectors[name] = g
+	p.loadSingle(name, g)
+
+	return g
+}
+
+type adder interface {
+	Add(float64) // implemented by both counters and gauges
+}
+
+func (p *persistentMetrics) loadSingle(name string, g adder) {
 	key := name + "\x00"
 	valBytes, err := p.db.Get([]byte(key), nil)
 	if err == nil {
 		val := math.Float64frombits(binary.BigEndian.Uint64(valBytes))
 		slog.Debug("setting", "name", name, "val", val)
-		g.Set(val)
+		g.Add(val)
 	}
+}
 
-	return g
+func (p *persistentMetrics) loadMultiple(name string, gfn func(labels []string) adder) {
+	baseKey := name + "\x00"
+	it := p.db.NewIterator(util.BytesPrefix([]byte(baseKey)), nil)
+	defer it.Release()
+	for it.Next() {
+		_, labels := p.parseKey(it.Key())
+		val := math.Float64frombits(binary.BigEndian.Uint64(it.Value()))
+		slog.Debug("setting", "name", name, "labels", labels, "val", val)
+		gfn(labels).Add(val)
+	}
 }
 
 func (p *persistentMetrics) Serve() {
@@ -80,12 +105,7 @@ func (p *persistentMetrics) Serve() {
 				me.Reset()
 			}
 		}()
-		for key, g := range p.gauges {
-			mch := nameWrapMetric(key, ch)
-			g.Collect(mch)
-			close(mch)
-		}
-		for key, g := range p.gaugeVecs {
+		for key, g := range p.collectors {
 			mch := nameWrapMetric(key, ch)
 			g.Collect(mch)
 			close(mch)
