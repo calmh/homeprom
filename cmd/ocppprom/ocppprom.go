@@ -17,6 +17,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/syndtr/goleveldb/leveldb"
 )
 
 var csms *ocpp.Server
@@ -25,29 +26,22 @@ var (
 	chargerInfo = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "charger_info",
 	}, []string{"vendor", "model", "serial"})
-	chargerState = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "charger_state",
-	})
-	chargerMeterValue = promauto.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "charger_meter_value",
-	}, []string{"measurand"})
-	chargerLastHeartbeat = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "charger_last_heartbeat",
-	})
+	chargerState         *persistentGauge
+	chargerMeterValue    *persistentGaugeVec
+	chargerLastHeartbeat *persistentGauge
 )
 
 var chargerStates = []string{"", "Available", "Preparing", "Charging", "SuspendedEV", "SuspendedEVSE", "Finishing", "Reserved", "Unavailable", "Faulted"}
 
 type CLI struct {
-	HTTPListen string `short:"h" default:":2118"`
-	OCPPListen string `short:"o" default:":8999"`
-
-	SampleIntervalS       int    `short:"s" default:"15"`
-	ClockAlignedIntervalS int    `short:"c" default:"900"`
-	Measurands            string `short:"m" default:"Energy.Active.Import.Register"`
-	MinStatusDurationS    int    `short:"d" default:"30"`
-
-	Debug bool `short:"v"`
+	HTTPListen            string `default:":2118" env:"HTTP_LISTEN"`
+	OCPPListen            string `default:":8999" env:"OCPP_LISTEN"`
+	SampleIntervalS       int    `default:"15" env:"SAMPLE_INTERVAL_S"`
+	ClockAlignedIntervalS int    `default:"900" env:"CLOCK_ALIGNED_INTERVAL_S"`
+	Measurands            string `default:"Energy.Active.Import.Register" env:"MEASURANDS"`
+	MinStatusDurationS    int    `default:"30" env:"MIN_STATUS_DURATION_S"`
+	StateDatabase         string `default:"~/ocppprom.db" env:"STATE_DATABASE" type:"path"`
+	Debug                 bool   `env:"DEBUG"`
 }
 
 func main() {
@@ -65,6 +59,23 @@ func main() {
 			NoColor:    !isatty.IsTerminal(os.Stdout.Fd()),
 		}),
 	))
+
+	db, err := leveldb.OpenFile(cli.StateDatabase, nil)
+	if err != nil {
+		slog.Error("Failed to open database", "err", err)
+		os.Exit(1)
+	}
+
+	pm := &persistentMetrics{db: db}
+	chargerState = pm.NewGauge(prometheus.GaugeOpts{
+		Name: "charger_state",
+	})
+	chargerMeterValue = pm.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "charger_meter_value",
+	}, []string{"measurand"})
+	chargerLastHeartbeat = pm.NewGauge(prometheus.GaugeOpts{
+		Name: "charger_last_heartbeat",
+	})
 
 	slog.Info("Starting", "ocpp", cli.OCPPListen, "http", cli.HTTPListen)
 
@@ -223,7 +234,7 @@ func meterValues(cp *ocpp.ChargePoint, p *v16.MeterValuesReq) *v16.MeterValuesCo
 			}
 			key = strings.ReplaceAll(key, "//", "/")
 			slog.Debug("Set meter value", "key", key, "val", val)
-			chargerMeterValue.WithLabelValues(key).Set(val)
+			chargerMeterValue.Set(val, key)
 		}
 	}
 	return &v16.MeterValuesConf{}

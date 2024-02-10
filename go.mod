@@ -10,6 +10,7 @@ require (
 	github.com/lmittmann/tint v1.0.4
 	github.com/mattn/go-isatty v0.0.20
 	github.com/prometheus/client_golang v1.17.0
+	github.com/syndtr/goleveldb v1.0.0
 	github.com/thejerf/suture/v4 v4.0.2
 	go.bug.st/serial v1.6.1
 	golang.org/x/text v0.14.0
@@ -21,6 +22,7 @@ require (
 	github.com/creack/goselect v0.1.2 // indirect
 	github.com/go-playground/locales v0.14.0 // indirect
 	github.com/go-playground/universal-translator v0.18.0 // indirect
+	github.com/golang/snappy v0.0.0-20180518054509-2e65f85255db // indirect
 	github.com/google/uuid v1.3.0 // indirect
 	github.com/gorilla/websocket v1.5.1 // indirect
 	github.com/leodido/go-urn v1.2.1 // indirect
