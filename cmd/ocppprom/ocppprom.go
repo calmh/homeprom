@@ -26,9 +26,9 @@ var (
 	chargerInfo = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "charger_info",
 	}, []string{"vendor", "model", "serial"})
-	chargerState         *persistentGauge
-	chargerMeterValue    *persistentGaugeVec
-	chargerLastHeartbeat *persistentGauge
+	chargerState         prometheus.Gauge
+	chargerMeterValue    *prometheus.GaugeVec
+	chargerLastHeartbeat prometheus.Gauge
 )
 
 var chargerStates = []string{"", "Available", "Preparing", "Charging", "SuspendedEV", "SuspendedEVSE", "Finishing", "Reserved", "Unavailable", "Faulted"}
@@ -66,16 +66,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	pm := &persistentMetrics{db: db}
-	chargerState = pm.NewGauge(prometheus.GaugeOpts{
-		Name: "charger_state",
-	})
-	chargerMeterValue = pm.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "charger_meter_value",
-	}, []string{"measurand"})
-	chargerLastHeartbeat = pm.NewGauge(prometheus.GaugeOpts{
-		Name: "charger_last_heartbeat",
-	})
+	pm := newPersistentMetrics(db)
+	go pm.Serve()
+	chargerState = pm.NewGauge(prometheus.GaugeOpts{Name: "charger_state"})
+	chargerMeterValue = pm.NewGaugeVec(prometheus.GaugeOpts{Name: "charger_meter_value"}, []string{"measurand"})
+	chargerLastHeartbeat = pm.NewGauge(prometheus.GaugeOpts{Name: "charger_last_heartbeat"})
 
 	slog.Info("Starting", "ocpp", cli.OCPPListen, "http", cli.HTTPListen)
 
@@ -234,7 +229,7 @@ func meterValues(cp *ocpp.ChargePoint, p *v16.MeterValuesReq) *v16.MeterValuesCo
 			}
 			key = strings.ReplaceAll(key, "//", "/")
 			slog.Debug("Set meter value", "key", key, "val", val)
-			chargerMeterValue.Set(val, key)
+			chargerMeterValue.WithLabelValues(key).Set(val)
 		}
 	}
 	return &v16.MeterValuesConf{}

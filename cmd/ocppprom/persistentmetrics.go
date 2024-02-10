@@ -2,82 +2,148 @@ package main
 
 import (
 	"encoding/binary"
-	"fmt"
+	"errors"
 	"log/slog"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	io_prometheus_client "github.com/prometheus/client_model/go"
 	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/syndtr/goleveldb/leveldb/iterator"
 	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
 type persistentMetrics struct {
-	db *leveldb.DB
+	db        *leveldb.DB
+	gauges    map[string]prometheus.Gauge
+	gaugeVecs map[string]*prometheus.GaugeVec
+	putCache  map[string]float64
 }
 
-func (p *persistentMetrics) NewGaugeVec(opts prometheus.GaugeOpts, labels []string) *persistentGaugeVec {
-	gv := promauto.NewGaugeVec(opts, labels)
+func newPersistentMetrics(db *leveldb.DB) *persistentMetrics {
+	return &persistentMetrics{
+		db:        db,
+		gauges:    make(map[string]prometheus.Gauge),
+		gaugeVecs: make(map[string]*prometheus.GaugeVec),
+		putCache:  make(map[string]float64),
+	}
+}
 
-	baseKey := fmt.Sprintf("%s_%s_%s\x00", opts.Namespace, opts.Subsystem, opts.Name)
-	it := p.db.NewIterator(util.BytesPrefix([]byte(baseKey)), nil)
-	defer it.Release()
-	for it.Next() {
-		key := string(it.Key())
-		name, labelsPart, _ := strings.Cut(key, "\x00")
-		labels := strings.Split(labelsPart, "\x01")
-		val := math.Float64frombits(binary.BigEndian.Uint64(it.Value()))
-		slog.Debug("setting", "name", name, "labels", labels, "val", val)
-		gv.WithLabelValues(labels...).Set(val)
+func (p *persistentMetrics) NewGaugeVec(opts prometheus.GaugeOpts, labels []string) *prometheus.GaugeVec {
+	gv := promauto.NewGaugeVec(opts, labels)
+	name := prometheus.BuildFQName(opts.Namespace, opts.Subsystem, opts.Name)
+	p.gaugeVecs[name] = gv
+
+	baseKey := name + "\x00"
+
+	load := func(it iterator.Iterator) int {
+		n := 0
+		defer it.Release()
+		for it.Next() {
+			_, labels := p.parseKey(it.Key())
+			val := math.Float64frombits(binary.BigEndian.Uint64(it.Value()))
+			slog.Debug("setting", "name", name, "labels", labels, "val", val)
+			gv.WithLabelValues(labels...).Set(val)
+			n++
+		}
+		return n
 	}
 
-	return &persistentGaugeVec{pm: p, opts: opts, labels: labels, gv: gv}
+	it := p.db.NewIterator(util.BytesPrefix([]byte(baseKey)), nil)
+	if load(it) == 0 {
+		// try again with legacy prefix
+		it := p.db.NewIterator(util.BytesPrefix([]byte("__"+baseKey)), nil)
+		load(it)
+	}
+
+	return gv
 }
 
-func (p *persistentMetrics) NewGauge(opts prometheus.GaugeOpts) *persistentGauge {
+func (p *persistentMetrics) NewGauge(opts prometheus.GaugeOpts) prometheus.Gauge {
 	g := promauto.NewGauge(opts)
+	name := prometheus.BuildFQName(opts.Namespace, opts.Subsystem, opts.Name)
+	p.gauges[name] = g
 
-	baseKey := fmt.Sprintf("%s_%s_%s\x00", opts.Namespace, opts.Subsystem, opts.Name)
-	valBytes, err := p.db.Get([]byte(baseKey), nil)
+	key := name + "\x00"
+	valBytes, err := p.db.Get([]byte(key), nil)
+	if errors.Is(err, leveldb.ErrNotFound) {
+		valBytes, err = p.db.Get([]byte("__"+key), nil) // legacy
+	}
 	if err == nil {
 		val := math.Float64frombits(binary.BigEndian.Uint64(valBytes))
-		slog.Debug("setting", "name", baseKey, "val", val)
+		slog.Debug("setting", "name", name, "val", val)
 		g.Set(val)
 	}
 
-	return &persistentGauge{pm: p, opts: opts, g: g}
+	return g
 }
 
-type persistentGaugeVec struct {
-	pm     *persistentMetrics
-	opts   prometheus.GaugeOpts
-	labels []string
-	gv     *prometheus.GaugeVec
+func (p *persistentMetrics) Serve() {
+	for range time.NewTicker(15 * time.Second).C {
+		ch := make(chan nameWrappedMetric)
+		go func() {
+			var me io_prometheus_client.Metric
+			for m := range ch {
+				_ = m.Write(&me)
+				var labels []string
+				for _, pair := range me.Label {
+					labels = append(labels, pair.GetValue())
+				}
+				_ = p.putFloat64(m.name, labels, me.Gauge.GetValue())
+				me.Reset()
+			}
+		}()
+		for key, g := range p.gauges {
+			mch := nameWrapMetric(key, ch)
+			g.Collect(mch)
+			close(mch)
+		}
+		for key, g := range p.gaugeVecs {
+			mch := nameWrapMetric(key, ch)
+			g.Collect(mch)
+			close(mch)
+		}
+	}
 }
 
-func (p *persistentGaugeVec) Set(value float64, labelValues ...string) {
-	p.gv.WithLabelValues(labelValues...).Set(value)
+type nameWrappedMetric struct {
+	name string
+	prometheus.Metric
+}
 
-	dbKey := fmt.Sprintf("%s_%s_%s\x00%s", p.opts.Namespace, p.opts.Subsystem, p.opts.Name, strings.Join(labelValues, "\x01"))
+func nameWrapMetric(name string, out chan nameWrappedMetric) chan prometheus.Metric {
+	ch := make(chan prometheus.Metric)
+	go func() {
+		for m := range ch {
+			out <- nameWrappedMetric{name: name, Metric: m}
+		}
+	}()
+	return ch
+}
+
+func (p *persistentMetrics) parseKey(key []byte) (name string, labels []string) {
+	name, labelsPart, _ := strings.Cut(string(key), "\x00")
+	labels = strings.Split(labelsPart, "\x01")
+	return name, labels
+}
+
+func (p *persistentMetrics) putFloat64(name string, labels []string, value float64) error {
+	key := name + "\x00"
+	if len(labels) > 0 {
+		key += strings.Join(labels, "\x01")
+	}
+	if p.putCache[key] == value {
+		return nil
+	}
 	var valBytes [8]byte
 	binary.BigEndian.PutUint64(valBytes[:], math.Float64bits(value))
-	slog.Debug("storing", "key", dbKey, "val", value)
-	_ = p.pm.db.Put([]byte(dbKey), valBytes[:], nil)
-}
-
-type persistentGauge struct {
-	pm   *persistentMetrics
-	opts prometheus.GaugeOpts
-	g    prometheus.Gauge
-}
-
-func (p *persistentGauge) Set(value float64) {
-	p.g.Set(value)
-
-	dbKey := fmt.Sprintf("%s_%s_%s\x00", p.opts.Namespace, p.opts.Subsystem, p.opts.Name)
-	var valBytes [8]byte
-	binary.BigEndian.PutUint64(valBytes[:], math.Float64bits(value))
-	slog.Debug("storing", "key", dbKey, "val", value)
-	_ = p.pm.db.Put([]byte(dbKey), valBytes[:], nil)
+	slog.Debug("storing", "key", key, "val", value)
+	if err := p.db.Put([]byte(key), valBytes[:], nil); err != nil {
+		return err
+	}
+	p.putCache[key] = value
+	return nil
 }
