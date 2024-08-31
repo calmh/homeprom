@@ -38,7 +38,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build kontainers
+      - name: Build containers
         run: |
           git fetch --tags
           descr=$(git describe --tags)
