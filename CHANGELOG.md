@@ -1,0 +1,10 @@
+# Changelog
+
+## 1.0.0 (2024-08-31)
+
+
+### Features
+
+* **ocppprom:** Persist metrics across restart ([86db5b2](https://github.com/calmh/homeprom/commit/86db5b221a55277e016fc01912b5bc4cc19135d9))
+* **ocppprom:** Set config values from command line switch, adjust defaults ([f9930ac](https://github.com/calmh/homeprom/commit/f9930ac0f036fa9e3e26fbf2ed7c1746096485e9))
+* **ocppprom:** Trigger metervalues on connection ([faea866](https://github.com/calmh/homeprom/commit/faea866d035299b10954c52661e2d606bf3d9c38))
