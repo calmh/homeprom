@@ -4,8 +4,9 @@ on:
   push:
 
 permissions:
+  contents: write
   packages: write
-  contents: read
+  pull-requests: write
 
 jobs:
   # define job to build and publish docker image
@@ -15,6 +16,10 @@ jobs:
 
     # steps to perform in job
     steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          release-type: simple
+
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -35,6 +40,17 @@ jobs:
 
       - name: Build kontainers
         run: |
-          ko build --base-import-paths --sbom=none ./cmd/*prom
+          git fetch --tags
+          descr=$(git describe --tags)
+          short=$(git describe --tags --abbrev=0)
+          export version="${descr#v}"
+          if [[ $descr == $short ]]; then
+            minor="${version%.*}"
+            major="${version%%.*}"
+            tags=(-t edge -t latest -t "$version" -t "$minor" -t "$major")
+          else
+            tags=(-t edge)
+          fi
+          ko build --base-import-paths --sbom=none "${tags[@]}" ./cmd/*prom
         env:
           KO_DOCKER_REPO: ghcr.io/calmh
