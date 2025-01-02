@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/calmh/homeprom/compare/v1.0.0...v1.0.1) (2025-01-02)
+
+
+### Bug Fixes
+
+* **hanprom:** improved error handling ([a2701b5](https://github.com/calmh/homeprom/commit/a2701b5510c1495f5749ec125c7143ecb172f6fe))
+
 ## 1.0.0 (2024-08-31)
 
 
