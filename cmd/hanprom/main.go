@@ -39,7 +39,7 @@ func main() {
 	kong.Parse(&cli)
 
 	main := suture.NewSimple("main")
-	go main.ServeBackground(context.Background())
+	main.ServeBackground(context.Background())
 
 	go func() {
 		slog.Info("Listening on HTTP", "address", cli.Listen)
@@ -53,6 +53,7 @@ func main() {
 	conn, err := net.DialTimeout("tcp", cli.Addr, time.Minute)
 	if err != nil {
 		slog.Error("Failed to connect", "address", cli.Addr, "error", err)
+		os.Exit(1)
 	}
 
 	var mqttClient *mqttClient

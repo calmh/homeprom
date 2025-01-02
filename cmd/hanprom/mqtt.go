@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -54,21 +55,24 @@ func (c *mqttClient) Serve(ctx context.Context) error {
 	token.Wait()
 	if err := token.Error(); err != nil {
 		slog.Error("Failed to connect to MQTT", "broker", c.opts.Servers[0], "client_id", c.opts.ClientID, "error", err)
-		return err
+		return fmt.Errorf("failed to connect: %s", err) // intentionally not wrapped
 	}
 	defer client.Disconnect(250)
 
 	for msg := range c.outbox {
 		if err := c.publish(client, msg.frame, msg.val); err != nil {
 			slog.Error("Failed to publish to MQTT", "broker", c.opts.Servers[0], "client_id", c.opts.ClientID, "error", err)
-			return err
+			return fmt.Errorf("failed to publish: %s", err) // intentionally not wrapped
 		}
 	}
 	return nil
 }
 
 func (c *mqttClient) Publish(frame *Frame, val *Value) {
-	c.outbox <- message{frame, val}
+	select {
+	case c.outbox <- message{frame, val}:
+	default:
+	}
 }
 
 func (c *mqttClient) publish(client mqtt.Client, frame *Frame, val *Value) error {
