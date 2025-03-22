@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2](https://github.com/calmh/homeprom/compare/v1.0.1...v1.0.2) (2025-03-22)
+
+
+### Bug Fixes
+
+* update dependencies ([efb3344](https://github.com/calmh/homeprom/commit/efb3344e50eb1437ae8f6a34b154c9118f33c43f))
+
 ## [1.0.1](https://github.com/calmh/homeprom/compare/v1.0.0...v1.0.1) (2025-01-02)
 
 
